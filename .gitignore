@@ -1,0 +1,10 @@
+.coverage
+.env
+.env.test
+.idea
+.pytest_cache
+*.session
+app_config
+cov_html
+templates
+venv
