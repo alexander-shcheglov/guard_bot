@@ -8,4 +8,5 @@ app_config
 cov_html
 templates
 venv
-*/__pycache__/*
+__pycache__/
+
