@@ -1,0 +1,9 @@
+services:
+  web:
+    build:
+      args:
+        - REQ_FILE=${REQ_FILE}
+      context: .
+      dockerfile: ./docker/django/Dockerfile
+    volumes:
+      - ../guard_bot:/guard_bot

@@ -1,0 +1,54 @@
+version: "3.8"
+
+services:
+  db:
+    env_file: .env
+    build:
+      args:
+          - LANGUAGE_CODE=${LANGUAGE_CODE}
+          - TIME_ZONE=${TIME_ZONE}
+      dockerfile: ./docker/db/Dockerfile
+      context: .
+    restart: always
+    environment:
+      - POSTGRES_USER=${DB_USER}
+      - POSTGRES_PASSWORD=${DB_PASSWORD}
+      - DJ_APP_DB_NAME=${DB_NAME}
+      - POSTGRES_DB=postgres
+    ports:
+      - ${DB_PORT}:${DB_PORT}
+    volumes:
+      - ./docker/db/scripts:/docker-entrypoint-initdb.d
+    container_name: db
+    logging:
+      options:
+        max-size: '50m'
+
+  admin:
+    extends:
+      file: django_app.yml
+      service: web
+    env_file: .env
+    depends_on:
+      - db
+    ports:
+      - '5943:5943'
+    entrypoint: python
+    command: manage.py runserver 0.0.0.0:5943
+    container_name: admin
+    logging:
+      options:
+        max-size: '50m'
+
+  guard_bot:
+    extends:
+      file: django_app.yml
+      service: web
+    env_file: .env
+    entrypoint: python manage.py start_bot
+    depends_on:
+      - db
+    container_name: guard_bot
+    logging:
+      options:
+        max-size: '50m'
