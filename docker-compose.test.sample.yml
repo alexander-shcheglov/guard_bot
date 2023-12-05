@@ -1,0 +1,38 @@
+version: "3.8"
+
+services:
+  db:
+    env_file: .env.test.sample
+    build:
+      args:
+          - LANGUAGE_CODE=${LANGUAGE_CODE}
+          - TIME_ZONE=${TIME_ZONE}
+      dockerfile: ./docker/db/Dockerfile
+      context: .
+    restart: always
+    environment:
+      - POSTGRES_USER=${DB_USER}
+      - POSTGRES_PASSWORD=${DB_PASSWORD}
+      - DJ_APP_DB_NAME=${DB_NAME}
+      - POSTGRES_DB=postgres
+    ports:
+      - ${DB_PORT}:${DB_PORT}
+    volumes:
+      - ./docker/db/scripts:/docker-entrypoint-initdb.d
+    container_name: db_test
+    logging:
+      options:
+        max-size: '50m'
+
+  guard_bot:
+    env_file: .env.test.sample
+    extends:
+      file: django_app.yml
+      service: web
+    entrypoint: ["pytest", "--cov=guard_bot", "tests/"]
+    depends_on:
+      - db
+    container_name: guard_bot_test
+    logging:
+      options:
+        max-size: '50m'

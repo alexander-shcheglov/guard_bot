@@ -1,0 +1,18 @@
+[run]
+omit =
+    ./guard_bot/asgi.py
+    ./guard_bot/wsgi.py
+    ./guard_bot/urls.py
+    ./guard_bot/bot/views.py
+    ./guard_bot/bot/tests.py
+
+[report]
+omit =
+    ./guard_bot/asgi.py
+    ./guard_bot/wsgi.py
+    ./guard_bot/urls.py
+    ./guard_bot/bot/views.py
+    ./guard_bot/bot/tests.py
+
+[html]
+directory = ./cov_html/
