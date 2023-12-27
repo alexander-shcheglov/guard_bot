@@ -218,6 +218,21 @@ def parsed_mute_message():
     del message
 
 
+@pytest.fixture
+def parsed_perm_on_message():
+    message = {
+        'users': [],
+        'chat_id': 1,
+        'comment': 'comment',
+        'command': 'on',
+        'perms': ['message', 'media', 'sticker', 'gif', 'game', 'inline', 'link', 'poll', 'invite']
+    }
+
+    yield message
+
+    del message
+
+
 @pytest_asyncio.fixture
 async def chat_admin_can_refresh():
     admin = await ChatAdmins.objects.acreate(user_id=1, chat_id=1, can_ban=True, can_delete=True, can_add_admin=True)
