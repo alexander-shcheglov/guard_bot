@@ -24,6 +24,8 @@ from guard_bot.bot.messages import (
     USER_WARN_DELETED,
     SLOW_MODE_ON,
     SLOW_MODE_OFF,
+    PERM_ON_RESULT_MESSAGE,
+    PERM_ON_ERROR_RESULT_MESSAGE, PERM_OFF_RESULT_MESSAGE, PERM_OFF_ERROR_RESULT_MESSAGE,
 )
 
 if typing.TYPE_CHECKING:
@@ -61,17 +63,32 @@ COMMAND = re.compile(r"!(\w+)", re.I)
 HOURS = re.compile(r"(\d+)(hr|h)+", re.I)
 MINUTES = re.compile(r"(\d+)(min|m)+", re.I)
 DAYS = re.compile(r"(\d+)(days|d)+", re.I)
-
+USER_PERMS = [re.compile(
+    r"(message|media|sticker|gif|game|inline|link|poll|invite)+",
+    re.I
+)]
 
 USERS_LIST = [TG_USER, DOG_USER, SHARP_USER]
 PERIOD = [("hours", HOURS), ("minutes", MINUTES), ("days", DAYS)]
-
+USERS_AND_PERMS = OrderedDict({'command': COMMAND, 'users': USERS_LIST, 'perms': USER_PERMS})
 USERS = OrderedDict({"command": COMMAND, "users": USERS_LIST})
 USERS_AND_PERIOD = OrderedDict(
     {"command": COMMAND, "users": USERS_LIST, "period": PERIOD}
 )
 
 SLOW_MODE_VALUES = [0, 10, 30, 60, 60 * 5, 60 * 15, 60 * 60]
+
+USER_PERMS_MAPPING = {
+    "message": 'send_message',
+    "media": "send_media",
+    "sticker": "send_stickers",
+    "gif": "send_gifs",
+    "game": "send_games",
+    "inline": "send_inline",
+    "link": "embed_link_previews",
+    "poll": "send_polls",
+    "invite": "invite_users",
+}
 
 
 def attr_setter(attrs: OrderedDict = None):
@@ -730,3 +747,53 @@ class Command(BaseCommand):
         chat_id = event.message.chat.id
         admins = await ChatAdmins.get_admins_by_chat(chat_id)
         await self.refresh_admins_for_chat(chat_id, admins.get(chat_id, set()))
+
+    async def _on_off_user_perm(
+            self,
+            event: events.NewMessage,
+            chat_id=None,
+            users=None,
+            perms=None,
+            on=True,
+            comment=None,
+            **kwargs
+    ):
+        result_message = ""
+        perms = perms if isinstance(perms, list) else [perms]
+        users = await self._get_users(event, users)
+        if not users:
+            return result_message
+        for user in users:
+            user_name, user_id = await self.get_user_name_and_id(user)
+            try:
+                kwargs = dict([(USER_PERMS_MAPPING[x], on) for x in perms])
+                await self.client.edit_permissions(
+                    chat_id, user_id, until_date=None, **kwargs
+                )
+                result_message += (
+                    PERM_ON_RESULT_MESSAGE if on else PERM_OFF_RESULT_MESSAGE
+                ).format(user_name, ",".join(perms))
+            except (UserAdminInvalidError, ChatAdminRequiredError, UserIdInvalidError):
+                result_message += (
+                    PERM_ON_ERROR_RESULT_MESSAGE if on else PERM_OFF_ERROR_RESULT_MESSAGE
+                ).format(user_name, ",".join(perms))
+        if comment:
+            result_message += REASON.format(comment)
+        await event.message.delete()
+        return result_message
+
+    @attr_setter(USERS_AND_PERMS)
+    @admin_check("can_delete")
+    async def on(self, event: events.NewMessage, chat_id=None, **kwargs):
+        """turn on user permissions"""
+        result_message = await self._on_off_user_perm(event, chat_id=chat_id, on=True, **kwargs)
+        if result_message:
+            await self.client.send_message(chat_id, message=result_message)
+
+    @attr_setter(USERS_AND_PERMS)
+    @admin_check("can_delete")
+    async def off(self, event: events.NewMessage, chat_id=None, **kwargs):
+        """turn off user permissions"""
+        result_message = await self._on_off_user_perm(event, chat_id=chat_id, on=False, **kwargs)
+        if result_message:
+            await self.client.send_message(chat_id, message=result_message)

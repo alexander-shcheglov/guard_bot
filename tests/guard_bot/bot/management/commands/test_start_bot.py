@@ -8,7 +8,7 @@ from telethon.errors import UserAdminInvalidError, ChatAdminRequiredError, UserI
 
 from guard_bot.bot.management.commands.start_bot import TG_USER, DOG_USER, SHARP_USER, COMMAND, HOURS, MINUTES, DAYS, \
     USERS_LIST, PERIOD, USERS, USERS_AND_PERIOD, SLOW_MODE_VALUES, attr_setter, admin_check, Command, get_command, \
-    get_user_name, get_id_from_entity, Lock
+    get_user_name, get_id_from_entity, Lock, USER_PERMS, USER_PERMS_MAPPING, USERS_AND_PERMS
 from guard_bot.bot.models import ChatAdmins, UserWarn, WarnType, ChatSettings
 
 USERS_TXT_TEST = '@dog_user1 #12345678 [tg_user](tg://user?id=34535433) 1111112333 1233456gt comment'
@@ -33,6 +33,25 @@ USERS_AND_PERIOD_TEST = OrderedDict({
         'users': USERS_LIST_TEST,
         'period': PERIOD_TEST
         })
+USER_PERMS_TEST = [re.compile(
+    r"(message|media|sticker|gif|game|inline|link|poll|invite)+",
+    re.I
+)]
+USERS_AND_PERMS_TEST = OrderedDict({'command': COMMAND_TEST, 'users': USERS_LIST_TEST, 'perms': USER_PERMS_TEST})
+
+USER_PERMS_TXT = "message media sticker gif game inline link poll invite some strange"
+
+USER_PERMS_MAPPING_TEST = {
+    "message": 'send_message',
+    "media": "send_media",
+    "sticker": "send_stickers",
+    "gif": "send_gifs",
+    "game": "send_games",
+    "inline": "send_inline",
+    "link": "embed_link_previews",
+    "poll": "send_polls",
+    "invite": "invite_users",
+}
 
 pytestmark = pytest.mark.django_db(transaction=True)
 
@@ -79,6 +98,20 @@ def test_users():
         'users': USERS_LIST_TEST
         }
     )
+
+
+def test_user_perms():
+    assert USER_PERMS_TEST[0].findall(USER_PERMS_TXT) == [
+        "message", "media", "sticker", "gif", "game", "inline", "link", "poll", "invite"]
+    assert USER_PERMS == USER_PERMS_TEST
+
+
+def test_user_perms_mapping():
+    assert USER_PERMS_MAPPING == USER_PERMS_MAPPING_TEST
+
+
+def test_user_and_perms():
+    assert USERS_AND_PERMS == USERS_AND_PERMS_TEST
 
 
 def test_users_and_period():
@@ -692,3 +725,112 @@ async def test_refresh_admins(patched_command, message_event, chat_admin_can_ref
     await patched_command.refresh_admins(message_event)
 
     assert patched_command.refresh_admins_for_chat.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test__on_off_user_perm(patched_command, message_event, reply_event, parsed_perm_on_message):
+    patched_command._get_users, patched_command.get_user_name_and_id = AsyncMock(), AsyncMock()
+    patched_command._get_users.return_value = []
+    assert await patched_command._on_off_user_perm(message_event, **parsed_perm_on_message, ) == ''
+
+    patched_command._get_users.return_value = [1]
+    patched_command.get_user_name_and_id.return_value = ('[1](tg://user?id=1)', 1)
+
+    assert await patched_command._on_off_user_perm(reply_event, **parsed_perm_on_message, ) == \
+           'User perms for [1](tg://user?id=1) granted: message,media,sticker,gif,game,inline,link,poll,invite\n' \
+           'Reason: comment'
+
+    assert patched_command._get_users.call_count == 2
+    assert patched_command.get_user_name_and_id.call_count == 1
+    assert patched_command._get_users.call_args_list == [call(message_event, []), call(reply_event, [])]
+    assert patched_command.get_user_name_and_id.call_args_list == [call(1)]
+    assert patched_command.client.edit_permissions.call_args_list == [call(
+        1,
+        1,
+        until_date=None,
+        send_message=True,
+        send_media=True,
+        send_stickers=True,
+        send_gifs=True,
+        send_games=True,
+        send_inline=True,
+        embed_link_previews=True,
+        send_polls=True,
+        invite_users=True
+    )]
+    assert reply_event.message.delete.call_count == 1
+
+    patched_command._get_users.reset_mock()
+    patched_command.get_user_name_and_id.reset_mock()
+    patched_command.client.edit_permissions.reset_mock()
+    assert await patched_command._on_off_user_perm(message_event, on=False, **parsed_perm_on_message) == \
+           'User perms for [1](tg://user?id=1) restricted: message,media,sticker,gif,game,inline,link,poll,invite\n' \
+           'Reason: comment'
+
+    assert patched_command._get_users.call_count == 1
+    assert patched_command.get_user_name_and_id.call_count == 1
+    assert patched_command._get_users.call_args_list == [call(message_event, [])]
+    assert patched_command.get_user_name_and_id.call_args_list == [call(1)]
+    assert patched_command.client.edit_permissions.call_args_list == [call(
+        1,
+        1,
+        until_date=None,
+        send_message=False,
+        send_media=False,
+        send_stickers=False,
+        send_gifs=False,
+        send_games=False,
+        send_inline=False,
+        embed_link_previews=False,
+        send_polls=False,
+        invite_users=False
+    )]
+    assert message_event.message.delete.call_count == 1
+
+    patched_command._get_users.reset_mock(return_value=True)
+    patched_command.get_user_name_and_id.reset_mock(return_value=True)
+    patched_command.client.edit_permissions.reset_mock()
+
+    exc_generator = exc()
+
+    async def raise_exceptions(*args, **kwargs):
+        raise next(exc_generator)('')
+
+    patched_command._get_users.return_value = [123, 456, 789]
+    patched_command.get_user_name_and_id.side_effect = [
+        ('[123](tg://user?id=123)', 123), ('[456](tg://user?id=456)', 456), ('[789](tg://user?id=789)', 789)]
+
+    patched_command.client.edit_permissions = raise_exceptions
+
+    assert await patched_command._on_off_user_perm(message_event, on=False, **parsed_perm_on_message) == \
+           'User perms for [123](tg://user?id=123) NOT restricted: message,' \
+           'media,sticker,gif,game,inline,link,poll,invite\n' \
+           'User perms for [456](tg://user?id=456) NOT restricted: message,' \
+           'media,sticker,gif,game,inline,link,poll,invite\n' \
+           'User perms for [789](tg://user?id=789) NOT restricted: message,' \
+           'media,sticker,gif,game,inline,link,poll,invite\n' \
+           'Reason: comment'
+
+
+@pytest.mark.asyncio
+async def test_on(patched_command, message_event, chat_admin_can_ban):
+    message_event.message.text = '!on #123 #456 message gif poll comment'
+    await patched_command.on(message_event)
+    assert patched_command.client.send_message.call_args == call(
+        message_event.message.chat.id,
+        message='User perms for [123](tg://user?id=123) granted: message,gif,poll\n'
+                'User perms for [456](tg://user?id=456) granted: message,gif,poll\n'
+                'Reason: comment'
+    )
+
+
+@pytest.mark.asyncio
+async def test_off(patched_command, message_event, chat_admin_can_ban):
+    message_event.message.text = '!off #123 #456 message gif poll comment'
+    await patched_command.off(message_event)
+    assert patched_command.client.send_message.call_args == call(
+        message_event.message.chat.id,
+        message='User perms for [123](tg://user?id=123) restricted: message,gif,poll\n'
+                'User perms for [456](tg://user?id=456) restricted: message,gif,poll\n'
+                'Reason: comment'
+    )
